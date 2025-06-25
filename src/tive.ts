@@ -31,11 +31,9 @@ export class Tive {
   mount(element: HTMLElement) {
     this.element = element;
     const node = (this.constructor as typeof Tive).template.content.cloneNode(true);
-
-    node.childNodes.forEach((node) => this.#watcher.onNode(node));
-
+    const children = Array.from(node.childNodes);
+    children.forEach((child) => this.#watcher.onNode(child));
     this.element.appendChild(node);
-
     return this;
   }
 }

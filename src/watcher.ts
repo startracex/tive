@@ -8,7 +8,9 @@ export class Watcher {
   }
 
   onNode(node: Node) {
-    if (node.nodeType === Node.ELEMENT_NODE) {
+    if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+      Array.from(node.childNodes).forEach((child) => this.onNode(child));
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
       this.onElement(node as Element);
     } else if (node.nodeType === Node.TEXT_NODE) {
       this.onText(node);
@@ -17,112 +19,157 @@ export class Watcher {
 
   onElement(node: Element) {
     if (node.nodeName === "TEMPLATE") {
-      for (const attr of node.attributes) {
+      const attrs = Array.from(node.attributes);
+      const templateContent = (node as HTMLTemplateElement).content;
+
+      for (const attr of attrs) {
         const name = attr.nodeName;
         const value = attr.nodeValue;
+        const match = value?.match(/\{\{(.+?)\}\}/);
+        if (!match) continue;
+        const expression = match[1].trim();
 
         if (name === "if") {
-          const match = value.match(/\{\{(.+?)\}\}/);
-          const expression = match[1].trim();
-          const commentStart = document.createComment("");
-          const commentEnd = document.createComment("");
-          const initial = !!this.host[expression];
-          const children = [...(node as HTMLTemplateElement).content.childNodes];
+          const commentStart = document.createComment("if-start");
+          const commentEnd = document.createComment("if-end");
+          const children = Array.from(templateContent.cloneNode(true).childNodes);
+          node.replaceWith(commentStart, ...(this.host[expression] ? children : []), commentEnd);
+          if (this.host[expression]) children.forEach((child) => this.onNode(child));
 
-          node.replaceWith(commentStart, ...(initial ? children : []), commentEnd);
-
-          let oldValue = initial;
-          const updater = (value) => {
+          let oldValue = !!this.host[expression];
+          this.addWatchListener(expression, (value) => {
             value = !!value;
-            if (oldValue === value) {
-              return;
-            }
+            if (value === oldValue) return;
             oldValue = value;
-            const startParent = commentStart.parentNode;
-            if (value) {
-              let previous: ChildNode = commentStart;
-              children.forEach((child) => {
-                previous.after(child);
-                previous = child;
-              });
-              previous.after(commentEnd);
-            } else {
-              let current = commentStart.nextSibling;
 
-              // remove start.next to end.previous
-              while (current && current !== commentEnd) {
-                const next = current.nextSibling;
-                startParent.removeChild(current);
-                current = next;
-              }
-            }
-          };
-          this.addWatchListener(expression, updater);
-        }
-        if (name === "for") {
-          const match = value.match(/\{\{(.+?)\}\}/);
-          if (!match) return;
+            const parent = commentStart.parentNode;
+            if (!parent) return;
 
-          const [itemVar, iterableExpr] = match[1].split(" in ").map((s) => s.trim());
-          const commentStart = document.createComment("");
-          const commentEnd = document.createComment("");
-          const templateContent = (node as HTMLTemplateElement).content;
-
-          node.replaceWith(commentStart, commentEnd);
-
-          const render = (list) => {
             let current = commentStart.nextSibling;
             while (current && current !== commentEnd) {
               const next = current.nextSibling;
-              commentStart.parentNode.removeChild(current);
+              parent.removeChild(current);
               current = next;
             }
 
-            list?.forEach((item, index) => {
-              const clone = templateContent.cloneNode(true) as DocumentFragment;
-              const context = Object.create(this.host);
-              context[itemVar] = item;
-              context.$index = index;
-
-              const subWatcher = new Watcher(context);
-              clone.childNodes.forEach((n) => subWatcher.onNode(n));
-              commentEnd.parentNode.insertBefore(clone, commentEnd);
-            });
-          };
-
-          const expression = iterableExpr;
-          const initial = this.host[expression];
-          render(initial);
-          this.addWatchListener(expression, render);
+            if (value) {
+              const fragment = document.createDocumentFragment();
+              const nextChildren = Array.from(templateContent.cloneNode(true).childNodes);
+              nextChildren.forEach((child) => {
+                this.onNode(child);
+                fragment.appendChild(child);
+              });
+              commentEnd.parentNode.insertBefore(fragment, commentEnd);
+            }
+          });
+          return;
         }
-        if (name === "html") {
-          const match = value.match(/\{\{(.+?)\}\}/);
-          if (!match) return;
-
-          const expression = match[1].trim();
-          const commentStart = document.createComment("");
-          const commentEnd = document.createComment("");
-
+        if (name === "for") {
+          const commentStart = document.createComment("for-start");
+          const commentEnd = document.createComment("for-end");
           node.replaceWith(commentStart, commentEnd);
 
-          const render = (htmlString: string) => {
+          const match = value.match(/\{\{(.+?)\}\}/);
+          if (!match) return;
+          const raw = match[1].trim();
+
+          let mode: "of" | "in" | "iterator" = "iterator";
+          let varName = "",
+            sourceExpr = "";
+
+          if (raw.includes(" of ")) {
+            [varName, sourceExpr] = raw.split(" of ").map((s) => s.trim());
+            mode = "of";
+          } else if (raw.includes(" in ")) {
+            [varName, sourceExpr] = raw.split(" in ").map((s) => s.trim());
+            mode = "in";
+          } else {
+            sourceExpr = raw;
+          }
+
+          const templateContent = (node as HTMLTemplateElement).content;
+
+          const render = (source) => {
+            const parent = commentStart.parentNode;
+            if (!parent) return;
+
             let current = commentStart.nextSibling;
             while (current && current !== commentEnd) {
               const next = current.nextSibling;
-              commentStart.parentNode.removeChild(current);
+              parent.removeChild(current);
+              current = next;
+            }
+
+            const insert = (contextData) => {
+              const fragment = templateContent.cloneNode(true) as DocumentFragment;
+              const context = Object.create(this.host);
+              Object.assign(context, contextData);
+              const subWatcher = new Watcher(context);
+              Array.from(fragment.childNodes).forEach((child) => subWatcher.onNode(child));
+              commentEnd.parentNode.insertBefore(fragment, commentEnd);
+            };
+
+            if (mode === "of" && Array.isArray(source)) {
+              source.forEach((item, index) => {
+                insert({ [varName]: item, $index: index });
+              });
+            } else if (mode === "in" && source && typeof source === "object") {
+              Object.keys(source).forEach((key, index) => {
+                insert({ [varName]: key, $value: source[key], $index: index });
+              });
+            } else if (source && typeof source.next === "function") {
+              let index = 0;
+              let result;
+              while (!(result = source.next()).done) {
+                const val = result.value;
+                if (typeof val === "object") {
+                  insert({
+                    dong: val.dong,
+                    index: val.index ?? index,
+                    value: val.value ?? val,
+                  });
+                } else {
+                  insert({ value: val, index });
+                }
+                index++;
+              }
+            }
+          };
+
+          render(this.host[sourceExpr]);
+          this.addWatchListener(sourceExpr, render);
+          return;
+        }
+
+        if (name === "html") {
+          const commentStart = document.createComment("html-start");
+          const commentEnd = document.createComment("html-end");
+          node.replaceWith(commentStart, commentEnd);
+
+          const render = (htmlString: string) => {
+            const parent = commentStart.parentNode;
+            if (!parent) return;
+
+            let current = commentStart.nextSibling;
+            while (current && current !== commentEnd) {
+              const next = current.nextSibling;
+              parent.removeChild(current);
               current = next;
             }
 
             const temp = document.createElement("div");
             temp.innerHTML = htmlString;
             const fragment = document.createDocumentFragment();
-            
-            Array.from(temp.childNodes).forEach((child) => fragment.appendChild(child));
+            Array.from(temp.childNodes).forEach((child) => {
+              this.onNode(child);
+              fragment.appendChild(child);
+            });
             commentEnd.parentNode.insertBefore(fragment, commentEnd);
           };
 
           render(this.host[expression]);
           this.addWatchListener(expression, render);
+          return;
         }
       }
 
@@ -221,9 +268,7 @@ export class Watcher {
         this.addWatchListener(expression, updater);
       }
     }
-    node.childNodes.forEach((node) => {
-      this.onNode(node);
-    });
+    Array.from(node.childNodes).forEach((child) => this.onNode(child));
   }
 
   onText(node: Node) {
