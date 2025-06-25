@@ -157,10 +157,10 @@ export class Watcher {
               current = next;
             }
 
-            const temp = document.createElement("div");
-            temp.innerHTML = htmlString;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, "text/html");
             const fragment = document.createDocumentFragment();
-            Array.from(temp.childNodes).forEach((child) => {
+            Array.from(doc.childNodes).forEach((child) => {
               this.onNode(child);
               fragment.appendChild(child);
             });
