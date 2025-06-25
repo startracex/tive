@@ -17,8 +17,12 @@ export class Tive {
           return this.#states[key];
         },
         set(newValue) {
+          if (Object.is(newValue, this.#states[key])) {
+            return;
+          }
+          console.log(key, newValue);
           this.#watcher.update(key, newValue);
-          return (this.#states[key] = newValue);
+          this.#states[key] = newValue;
         },
       });
     }

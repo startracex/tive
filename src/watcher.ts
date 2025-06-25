@@ -24,67 +24,105 @@ export class Watcher {
         if (name === "if") {
           const match = value.match(/\{\{(.+?)\}\}/);
           const expression = match[1].trim();
-          const commentFalse = document.createComment("");
           const commentStart = document.createComment("");
           const commentEnd = document.createComment("");
-          const initial = this.host[expression];
+          const initial = !!this.host[expression];
           const children = [...(node as HTMLTemplateElement).content.childNodes];
 
-          if (initial) {
-            node.replaceWith(commentStart, ...children, commentEnd);
-          } else {
-            node.replaceWith(commentFalse);
-          }
+          node.replaceWith(commentStart, ...(initial ? children : []), commentEnd);
 
+          let oldValue = initial;
           const updater = (value) => {
+            value = !!value;
+            if (oldValue === value) {
+              return;
+            }
+            oldValue = value;
+            const startParent = commentStart.parentNode;
             if (value) {
-              const parentFalse = commentFalse.parentNode;
-              if (parentFalse) {
-                // replace false with start
-                parentFalse.replaceChild(commentStart, commentFalse);
-
-                let previous: ChildNode = commentStart;
-                children.forEach((child) => {
-                  previous.after(child);
-                  previous = child;
-                });
-                previous.after(commentEnd);
-              }
+              let previous: ChildNode = commentStart;
+              children.forEach((child) => {
+                previous.after(child);
+                previous = child;
+              });
+              previous.after(commentEnd);
             } else {
-              const startParent = commentStart.parentNode;
-              if (startParent && commentEnd.parentNode) {
-                const parent = startParent;
+              let current = commentStart.nextSibling;
 
-                let current = commentStart.nextSibling;
-
-                // replace start with false
-                parent.replaceChild(commentFalse, commentStart);
-
-                // remove start.next to end.previous
-                while (current && current !== commentEnd) {
-                  const next = current.nextSibling;
-                  parent.removeChild(current);
-                  current = next;
-                }
-
-                // remove end, not necessary
-                // parent.removeChild(commentEnd);
+              // remove start.next to end.previous
+              while (current && current !== commentEnd) {
+                const next = current.nextSibling;
+                startParent.removeChild(current);
+                current = next;
               }
             }
           };
           this.addWatchListener(expression, updater);
         }
         if (name === "for") {
+          const match = value.match(/\{\{(.+?)\}\}/);
+          if (!match) return;
+
+          const [itemVar, iterableExpr] = match[1].split(" in ").map((s) => s.trim());
+          const commentStart = document.createComment("");
+          const commentEnd = document.createComment("");
+          const templateContent = (node as HTMLTemplateElement).content;
+
+          node.replaceWith(commentStart, commentEnd);
+
+          const render = (list) => {
+            let current = commentStart.nextSibling;
+            while (current && current !== commentEnd) {
+              const next = current.nextSibling;
+              commentStart.parentNode.removeChild(current);
+              current = next;
+            }
+
+            list?.forEach((item, index) => {
+              const clone = templateContent.cloneNode(true) as DocumentFragment;
+              const context = Object.create(this.host);
+              context[itemVar] = item;
+              context.$index = index;
+
+              const subWatcher = new Watcher(context);
+              clone.childNodes.forEach((n) => subWatcher.onNode(n));
+              commentEnd.parentNode.insertBefore(clone, commentEnd);
+            });
+          };
+
+          const expression = iterableExpr;
+          const initial = this.host[expression];
+          render(initial);
+          this.addWatchListener(expression, render);
         }
         if (name === "html") {
           const match = value.match(/\{\{(.+?)\}\}/);
+          if (!match) return;
+
           const expression = match[1].trim();
-          const initial = this.host[expression];
-          const updater = (newValue) => {
-            node.innerHTML = newValue;
+          const commentStart = document.createComment("");
+          const commentEnd = document.createComment("");
+
+          node.replaceWith(commentStart, commentEnd);
+
+          const render = (htmlString: string) => {
+            let current = commentStart.nextSibling;
+            while (current && current !== commentEnd) {
+              const next = current.nextSibling;
+              commentStart.parentNode.removeChild(current);
+              current = next;
+            }
+
+            const temp = document.createElement("div");
+            temp.innerHTML = htmlString;
+            const fragment = document.createDocumentFragment();
+            
+            Array.from(temp.childNodes).forEach((child) => fragment.appendChild(child));
+            commentEnd.parentNode.insertBefore(fragment, commentEnd);
           };
-          updater(initial);
-          this.addWatchListener(expression, updater);
+
+          render(this.host[expression]);
+          this.addWatchListener(expression, render);
         }
       }
 
