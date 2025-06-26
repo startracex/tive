@@ -101,7 +101,7 @@ export class Watcher {
           const keyExpr = keyAttr?.match(/\{\{(.+?)\}\}/)?.[1]?.trim();
           const templateContent = (node as HTMLTemplateElement).content;
           const getKey = keyExpr ? (ctx) => evalInContext(keyExpr, ctx) : (ctx) => ctx?.$index;
-        
+
           const patcher = new KeyedListPatcher(
             (context) => {
               const frag = templateContent.cloneNode(true) as DocumentFragment;
@@ -297,37 +297,43 @@ export class Watcher {
   }
 
   onText(node: Node) {
-    const value = node.nodeValue;
+    const value = node.nodeValue!;
+    const reg = /\{\{(.+?)\}\}/g;
+
+    const textTokens: any[] = [];
+    const tokenMap: Record<string, number[]> = {};
     let lastIndex = 0;
     let match: RegExpExecArray | null;
-    const textTokens: any[] = [];
-    const tokenMap = {};
-    const reg = /\{\{(.+?)\}\}/g;
+
     while ((match = reg.exec(value))) {
-      const startIndex = match.index;
-      if (startIndex > lastIndex) {
-        textTokens.push(value.slice(lastIndex, startIndex));
+      const start = match.index;
+      if (start > lastIndex) {
+        textTokens.push(value.slice(lastIndex, start));
       }
+
       const key = match[1].trim();
-      textTokens.push(getDeepValue(this.host, key));
-      lastIndex = match.index + match[0].length;
-      const pos = textTokens.length - 1;
+      const val = getDeepValue(this.host, key);
+      const pos = textTokens.length;
+      textTokens.push(val);
+
       tokenMap[key] ??= [];
       tokenMap[key].push(pos);
+
+      lastIndex = start + match[0].length;
     }
+
     if (lastIndex < value.length) {
       textTokens.push(value.slice(lastIndex));
     }
+
     node.nodeValue = textTokens.join("");
 
     for (const key in tokenMap) {
-      this.addWatchListener(key, (newValue) => {
-        if (tokenMap[key]) {
-          tokenMap[key].forEach((pos) => {
-            textTokens[pos] = getDeepValue(this.host, key);
-          });
-          node.nodeValue = textTokens.join("");
+      this.addWatchListener(key, (newVal) => {
+        for (const pos of tokenMap[key]) {
+          textTokens[pos] = newVal;
         }
+        node.nodeValue = textTokens.join("");
       });
     }
   }
