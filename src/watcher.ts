@@ -1,3 +1,13 @@
+import { KeyedListPatcher } from "./patcher";
+
+function evalInContext(expr: string, context: any) {
+  return Function(...Object.keys(context), `return ${expr}`)(...Object.values(context));
+}
+
+function getDeepValue(obj: any, path: string): any {
+  return path.split(".").reduce((o, k) => (o ? o[k] : ""), obj);
+}
+
 export class Watcher {
   watchCallbacks: Map<string | symbol, ((value: any) => void)[]>;
   host: any;
@@ -71,8 +81,8 @@ export class Watcher {
 
           const match = value.match(/\{\{(.+?)\}\}/);
           if (!match) return;
-          const raw = match[1].trim();
 
+          const raw = match[1].trim();
           let mode: "of" | "in" | "iterator" = "iterator";
           let varName = "",
             sourceExpr = "";
@@ -87,56 +97,71 @@ export class Watcher {
             sourceExpr = raw;
           }
 
+          const keyAttr = node.getAttribute("key");
+          const keyExpr = keyAttr?.match(/\{\{(.+?)\}\}/)?.[1]?.trim();
           const templateContent = (node as HTMLTemplateElement).content;
+          const getKey = keyExpr ? (ctx) => evalInContext(keyExpr, ctx) : (ctx) => ctx?.$index;
+        
+          const patcher = new KeyedListPatcher(
+            (context) => {
+              const frag = templateContent.cloneNode(true) as DocumentFragment;
+              const subWatcher = new Watcher(context);
+              const nodes = Array.from(frag.childNodes);
+              nodes.forEach((n) => subWatcher.onNode(n));
+              return nodes;
+            },
+            (context) => {
+              if (!keyExpr) throw new Error("missing key expression");
+              return getKey(context);
+            }
+          );
 
           const render = (source) => {
-            const parent = commentStart.parentNode;
-            if (!parent) return;
-
-            let current = commentStart.nextSibling;
-            while (current && current !== commentEnd) {
-              const next = current.nextSibling;
-              parent.removeChild(current);
-              current = next;
-            }
-
-            const insert = (contextData) => {
-              const fragment = templateContent.cloneNode(true) as DocumentFragment;
-              const context = Object.create(this.host);
-              Object.assign(context, contextData);
-              const subWatcher = new Watcher(context);
-              Array.from(fragment.childNodes).forEach((child) => subWatcher.onNode(child));
-              commentEnd.parentNode.insertBefore(fragment, commentEnd);
-            };
+            if (!source) return;
+            const list: { context: any }[] = [];
 
             if (mode === "of" && Array.isArray(source)) {
               source.forEach((item, index) => {
-                insert({ [varName]: item, $index: index });
+                const ctx = Object.create(this.host);
+                ctx[varName] = item;
+                ctx.$index = index;
+                list.push({ context: ctx });
               });
-            } else if (mode === "in" && source && typeof source === "object") {
-              Object.keys(source).forEach((key, index) => {
-                insert({ [varName]: key, $value: source[key], $index: index });
+            } else if (mode === "in" && typeof source === "object") {
+              Object.keys(source).forEach((keyStr, index) => {
+                const ctx = Object.create(this.host);
+                ctx[varName] = keyStr;
+                ctx.$value = source[keyStr];
+                ctx.$index = index;
+                list.push({ context: ctx });
               });
             } else if (source && typeof source.next === "function") {
               let index = 0;
               let result;
               while (!(result = source.next()).done) {
                 const val = result.value;
+                const ctx = Object.create(this.host);
                 if (typeof val === "object") {
-                  insert({
-                    dong: val.dong,
-                    index: val.index ?? index,
-                    value: val.value ?? val,
-                  });
+                  ctx.dong = val.dong;
+                  ctx.index = val.index ?? index;
+                  ctx.value = val.value ?? val;
                 } else {
-                  insert({ value: val, index });
+                  ctx.value = val;
+                  ctx.index = index;
                 }
+                list.push({ context: ctx });
                 index++;
               }
             }
+
+            patcher.patch(list);
           };
 
-          render(this.host[sourceExpr]);
+          requestAnimationFrame(() => {
+            patcher.mount(commentEnd.parentNode!, commentEnd);
+            render(this.host[sourceExpr]);
+          });
+
           this.addWatchListener(sourceExpr, render);
           return;
         }
@@ -284,7 +309,7 @@ export class Watcher {
         textTokens.push(value.slice(lastIndex, startIndex));
       }
       const key = match[1].trim();
-      textTokens.push(this.host[key]);
+      textTokens.push(getDeepValue(this.host, key));
       lastIndex = match.index + match[0].length;
       const pos = textTokens.length - 1;
       tokenMap[key] ??= [];
@@ -299,7 +324,7 @@ export class Watcher {
       this.addWatchListener(key, (newValue) => {
         if (tokenMap[key]) {
           tokenMap[key].forEach((pos) => {
-            textTokens[pos] = newValue;
+            textTokens[pos] = getDeepValue(this.host, key);
           });
           node.nodeValue = textTokens.join("");
         }
