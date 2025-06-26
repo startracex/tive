@@ -1,15 +1,33 @@
 {
   "name": "tive",
-  "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
+  "version": "0.0.0",
+  "description": "Templated · Interactive · View Engine",
   "scripts": {
-    "build": "tsc"
+    "build": "pnpm rolldown -c rolldown.config.ts && tsc"
   },
   "devDependencies": {
-    "rolldown-vite": "^7.0.0",
+    "@types/node": "^24.0.4",
+    "rolldown": "1.0.0-beta.20",
     "typescript": "^5.8.3"
   },
-  "private": true,
-  "packageManager": "pnpm@10.12.2"
+  "exports": {
+    ".": {
+      "import": "./dist/module/index.js",
+      "require": "./dist/node/index.cjs",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./*": {
+      "import": "./dist/module/*",
+      "require": "./dist/node/*",
+      "types": "./dist/types/*.d.ts"
+    },
+    "./*.js": {
+      "import": "./dist/module/*.js",
+      "require": "./dist/node/*.js",
+      "types": "./dist/types/*.d.ts"
+    },
+    "./dist/*": null,
+    "./package.json": "./package.json"
+  },
+  "packageManager": "pnpm@10.12.4"
 }
