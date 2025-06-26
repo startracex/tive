@@ -1,3 +1,8 @@
+import { AttributeHandler } from "./attributes/handlers/attribute";
+import { BooleanAttrHandler } from "./attributes/handlers/boolean";
+import { EventHandler } from "./attributes/handlers/event";
+import { PropertyHandler } from "./attributes/handlers/property";
+import { AttributeRegistry, createContext, evaluateExpression } from "./attributes/registry";
 import { KeyedListPatcher } from "./patcher";
 
 function evalInContext(expr: string, context: any) {
@@ -12,9 +17,12 @@ export class Watcher {
   watchCallbacks: Map<string | symbol, ((value: any) => void)[]>;
   host: any;
 
+  registry: AttributeRegistry;
   constructor(host: any) {
     this.watchCallbacks = new Map();
     this.host = host;
+    this.registry = new AttributeRegistry();
+    this.registry.register(PropertyHandler, BooleanAttrHandler, EventHandler, AttributeHandler);
   }
 
   onNode(node: Node) {
@@ -200,98 +208,19 @@ export class Watcher {
 
       return;
     }
-    const resolvedAttributes = [];
     const { attributes } = node;
     for (let _i = 0; _i < attributes.length; _i++) {
-      const { nodeName: name, nodeValue: value } = attributes[_i];
-      if (name === "...") {
-        // rest properties
-        if (_i !== attributes.length - 1) {
-          throw new Error("rest properties directive must be the last attribute");
-        }
-
-        const match = value.match(/\{\{(.+?)\}\}/);
-        const updater = (newValue) => {
-          Object.keys(newValue).forEach((key) => {
-            if (!resolvedAttributes.includes(key)) {
-              node[key] = newValue[key];
-            }
-          });
-        };
-        if (match) {
-          const expression = match[1].trim();
-          const initial = this.host[expression];
-          updater(initial);
-          this.addWatchListener(expression, updater);
-        }
-        node.removeAttribute(name);
-      }
-      resolvedAttributes.push(name);
-
-      if (name.startsWith("@")) {
-        /* listener */
-        const eventName = name.slice(1);
-        const match = value.match(/\{\{(.+?)\}\}/);
-        if (match) {
-          const expression = match[1].trim();
-          const fn = this.host[expression];
-          node.addEventListener(eventName, fn.bind(this.host), fn);
-        }
-        node.removeAttribute(name);
-        continue;
-      }
-      if (name.startsWith(".")) {
-        /* property */
-        const match = value.match(/\{\{(.+?)\}\}/);
-        const updater = (newValue) => {
-          node[name.slice(1)] = newValue;
-        };
-        if (match) {
-          const expression = match[1].trim();
-          const initial = this.host[expression];
-          updater(initial);
-          this.addWatchListener(expression, updater);
-        }
-        node.removeAttribute(name);
-        continue;
-      }
-      if (name.startsWith("?")) {
-        /* boolean attribute */
-        const qualifiedName = name.slice(1);
-        const updater = (value) => {
-          if (value) {
-            node.setAttribute(qualifiedName, "");
-          } else {
-            node.removeAttribute(qualifiedName);
-          }
-        };
-        const match = value.match(/\{\{(.+?)\}\}/);
-        if (match) {
-          const expression = match[1].trim();
-          const initial = this.host[expression];
-
-          updater(initial);
-          this.addWatchListener(expression, updater);
-        } else {
-          if (value) {
-            console.warn("?directive do not need a value");
-            node.setAttribute(qualifiedName, "");
-          }
-        }
-        node.removeAttribute(name);
-        continue;
-      }
-      /* attribute */
-      const match = value.match(/\{\{(.+?)\}\}/);
-      if (match) {
-        const expression = match[1].trim();
-        const initial = this.host[expression];
-        const updater = (newValue) => {
-          node.setAttribute(name, newValue);
-        };
-        updater(initial);
-        this.addWatchListener(expression, updater);
-      }
+      this.registry.apply(
+        node,
+        attributes[_i],
+        createContext({
+          host: this.host,
+          index: _i,
+          allAttributes: [...attributes],
+          evaluator: evaluateExpression,
+          watchFn: this.addWatchListener.bind(this),
+        })
+      );
     }
     Array.from(node.childNodes).forEach((child) => this.onNode(child));
   }

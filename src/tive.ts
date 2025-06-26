@@ -20,7 +20,6 @@ export class Tive {
           if (Object.is(newValue, this.#states[key])) {
             return;
           }
-          console.log(key, newValue);
           this.#watcher.update(key, newValue);
           this.#states[key] = newValue;
         },
