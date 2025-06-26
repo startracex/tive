@@ -1,9 +1,6 @@
-import { AttributeHandler } from "./attributes/handlers/attribute";
-import { BooleanAttrHandler } from "./attributes/handlers/boolean";
-import { EventHandler } from "./attributes/handlers/event";
-import { PropertyHandler } from "./attributes/handlers/property";
-import { AttributeRegistry, createContext, evaluateExpression } from "./attributes/registry";
-import { KeyedListPatcher } from "./patcher";
+import { AttributeRegistry, createContext, evaluateExpression } from "./attributes/registry.js";
+import { ComponentRegistry } from "./components/registry.js";
+import { KeyedListPatcher } from "./patcher.js";
 
 function evalInContext(expr: string, context: any) {
   return Function(...Object.keys(context), `return ${expr}`)(...Object.values(context));
@@ -16,13 +13,14 @@ function getDeepValue(obj: any, path: string): any {
 export class Watcher {
   watchCallbacks: Map<string | symbol, ((value: any) => void)[]>;
   host: any;
+  componentRegistry: ComponentRegistry;
 
-  registry: AttributeRegistry;
-  constructor(host: any) {
+  attributeRegistry: AttributeRegistry;
+  constructor(host: any, attributeRegistry: AttributeRegistry, componentRegistry: ComponentRegistry) {
     this.watchCallbacks = new Map();
     this.host = host;
-    this.registry = new AttributeRegistry();
-    this.registry.register(PropertyHandler, BooleanAttrHandler, EventHandler, AttributeHandler);
+    this.componentRegistry = componentRegistry;
+    this.attributeRegistry = attributeRegistry;
   }
 
   onNode(node: Node) {
@@ -113,7 +111,7 @@ export class Watcher {
           const patcher = new KeyedListPatcher(
             (context) => {
               const frag = templateContent.cloneNode(true) as DocumentFragment;
-              const subWatcher = new Watcher(context);
+              const subWatcher = new Watcher(context, this.attributeRegistry, this.componentRegistry);
               const nodes = Array.from(frag.childNodes);
               nodes.forEach((n) => subWatcher.onNode(n));
               return nodes;
@@ -208,9 +206,12 @@ export class Watcher {
 
       return;
     }
+    if (this.componentRegistry?.createIfComponent(node, this.host)) {
+      return;
+    }
     const { attributes } = node;
     for (let _i = 0; _i < attributes.length; _i++) {
-      this.registry.apply(
+      this.attributeRegistry.apply(
         node,
         attributes[_i],
         createContext({

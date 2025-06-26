@@ -1,13 +1,12 @@
-import { AttributeHandler } from "./handlers/attribute";
+import { AttributeHandler } from "./handlers/attribute.js";
 
-export type EvalFunction = (code: string, context: any) => Evaluated;
+export type EvalFunction = (code: string, context: Context) => Evaluated;
 export interface Evaluated {
   raw: string;
   value: any;
   deps: string[];
 }
 export type WatchFunction = (dep: string, cb: (val: any) => void) => void;
-
 
 export interface Context {
   host: any;
@@ -49,15 +48,15 @@ export function createContext({
   };
 }
 
-export const evaluateExpression = (raw: string, ctx: any) => {
+export const evaluateExpression = (raw: string, thisArg) => {
   const match = raw.match(/\{\{(.+?)\}\}/);
-  if (!match) return { raw, value: raw, deps: [] };
+  if (!match) return { raw, value: raw.trim(), deps: [] };
 
   const expr = match[1].trim();
   const fn = new Function("with(this){return " + expr + "}");
   return {
     raw,
-    value: fn.call(ctx.host),
+    value: fn.call(thisArg),
     deps: [expr],
   };
 };
@@ -71,7 +70,7 @@ export class AttributeRegistry {
   }
 
   apply(el: Element, attr: Attr, ctx: Context): void {
-    const expr = ctx.evaluate(attr.value, ctx);
+    const expr = ctx.evaluate(attr.value, ctx.host);
     for (const handler of this.handlers) {
       if (handler.test(attr.name, ctx)) {
         const h = new handler(el, attr, expr, ctx);
