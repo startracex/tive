@@ -1,4 +1,4 @@
-import { AttributeHandler } from "./attribute";
+import { AttributeHandler } from "./attribute.js";
 
 export class PropertyHandler extends AttributeHandler {
   static test(name: string) {
@@ -13,6 +13,6 @@ export class PropertyHandler extends AttributeHandler {
   }
 
   update(newValue: any) {
-    this.element[this.prop] = newValue;
+    (this.element as any)[this.prop] = newValue;
   }
 }

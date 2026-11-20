@@ -1,6 +1,6 @@
-import { AttributeHandler } from "./handlers/attribute.js";
+import type { AttributeHandler } from "./handlers/attribute.js";
 
-export type EvalFunction = (code: string, context: Context) => Evaluated;
+export type EvalFunction = (code: string, context: any) => Evaluated;
 export interface Evaluated {
   raw: string;
   value: any;
@@ -48,16 +48,51 @@ export function createContext({
   };
 }
 
-export const evaluateExpression = (raw: string, thisArg) => {
+const KEYWORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "NaN",
+  "Infinity",
+  "this",
+  "new",
+  "typeof",
+  "void",
+  "in",
+  "of",
+  "instanceof",
+  "return",
+]);
+
+/** Collect watch keys: full expr + root identifiers / paths referenced. */
+export function collectDeps(expr: string): string[] {
+  const deps = new Set<string>([expr]);
+  const re = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(expr))) {
+    const path = match[0];
+    if (KEYWORDS.has(path.split(".")[0])) {
+      continue;
+    }
+    deps.add(path);
+    deps.add(path.split(".")[0]);
+  }
+  return [...deps];
+}
+
+export const evaluateExpression = (raw: string, thisArg: any): Evaluated => {
   const match = raw.match(/\{\{(.+?)\}\}/);
-  if (!match) return { raw, value: raw.trim(), deps: [] };
+  if (!match) {
+    return { raw, value: raw.trim(), deps: [] };
+  }
 
   const expr = match[1].trim();
-  const fn = new Function("with(this){return " + expr + "}");
+  const fn = new Function(`with(this){return (${expr});}`);
   return {
     raw,
     value: fn.call(thisArg),
-    deps: [expr],
+    deps: collectDeps(expr),
   };
 };
 
@@ -70,20 +105,21 @@ export class AttributeRegistry {
   }
 
   apply(el: Element, attr: Attr, ctx: Context): void {
-    const expr = ctx.evaluate(attr.value, ctx.host);
+    // Capture before handlers mutate/remove the live Attr value
+    const raw = attr.value;
+    const expr = ctx.evaluate(raw, ctx.host);
     for (const handler of this.handlers) {
       if (handler.test(attr.name, ctx)) {
         const h = new handler(el, attr, expr, ctx);
         h.init();
-        ctx.watch?.(expr, (val) => {
-          h.update(val);
+        // Re-evaluate on any dep change so expressions like `count + 1` stay correct
+        ctx.watch(expr, () => {
+          const next = ctx.evaluate(raw, ctx.host);
+          h.evaluated = next;
+          h.update(next.value);
         });
-        break;
+        return;
       }
-    }
-
-    if (ctx.resolved.size === ctx.allAttributes.length) {
-      return;
     }
 
     console.warn(`no handler matched ${attr.name}`);

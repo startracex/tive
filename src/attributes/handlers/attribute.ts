@@ -1,7 +1,7 @@
-import type { Context, Evaluated } from "../registry";
+import type { Context, Evaluated } from "../registry.js";
 
 export class AttributeHandler {
-  static test(name: string, context: Context) {
+  static test(_name: string, _context: Context) {
     return true;
   }
 
@@ -22,6 +22,10 @@ export class AttributeHandler {
   }
 
   update(newValue: any) {
-    this.element.setAttribute(this.attr.name, newValue);
+    if (newValue == null || newValue === false) {
+      this.element.removeAttribute(this.attr.name);
+      return;
+    }
+    this.element.setAttribute(this.attr.name, String(newValue));
   }
 }

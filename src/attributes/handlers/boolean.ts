@@ -1,4 +1,4 @@
-import { AttributeHandler } from "./attribute";
+import { AttributeHandler } from "./attribute.js";
 
 export class BooleanAttrHandler extends AttributeHandler {
   static test(name: string) {
@@ -14,14 +14,6 @@ export class BooleanAttrHandler extends AttributeHandler {
 
   update(newValue: any) {
     if (newValue) {
-      this.element.setAttribute(this.prop, "");
-    } else {
-      this.element.removeAttribute(this.prop);
-    }
-  }
-
-  private apply(value: any) {
-    if (value) {
       this.element.setAttribute(this.prop, "");
     } else {
       this.element.removeAttribute(this.prop);

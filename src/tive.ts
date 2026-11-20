@@ -1,5 +1,5 @@
 import { builtinAttributeRegistry } from "./attributes/handlers/builtins.js";
-import { AttributeRegistry } from "./attributes/registry.js";
+import type { AttributeRegistry } from "./attributes/registry.js";
 import { ComponentRegistry } from "./components/registry.js";
 
 import { Watcher } from "./watcher.js";
@@ -18,14 +18,18 @@ export class Tive {
   static properties: Record<string | symbol, any>;
   static components: Record<string, typeof Tive>;
 
-  element: HTMLElement;
-  name: string;
+  element!: HTMLElement;
+  name!: string;
   #states: Record<string, any>;
   #watcher: Watcher;
   constructor() {
     const cons = this.constructor as typeof Tive;
     this.#states = {};
-    this.#watcher = new Watcher(this, cons.attributeRegistry, cons.componentRegistry);
+
+    const componentRegistry =
+      cons.components != null ? new ComponentRegistry(cons.components) : cons.componentRegistry;
+
+    this.#watcher = new Watcher(this, cons.attributeRegistry, componentRegistry);
 
     for (const key in cons.properties) {
       Object.defineProperty(this, key, {
@@ -36,8 +40,8 @@ export class Tive {
           if (Object.is(newValue, this.#states[key])) {
             return;
           }
-          this.#watcher.update(key, newValue);
           this.#states[key] = newValue;
+          this.#watcher.update(key, newValue);
         },
       });
     }
@@ -46,16 +50,8 @@ export class Tive {
   mount(element: HTMLElement) {
     this.element = element;
     const node = (this.constructor as typeof Tive).template.content.cloneNode(true);
-    const children = Array.from(node.childNodes);
-    children.forEach((child) => this.#watcher.onNode(child));
+    Array.from(node.childNodes).forEach((child) => this.#watcher.onNode(child));
     this.element.appendChild(node);
-
-    children.forEach((child) => {
-      if (child instanceof Element) {
-        this.#watcher.onNode(child);
-      }
-    });
-
     return this;
   }
 }
