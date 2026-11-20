@@ -3,31 +3,31 @@
   "version": "0.0.0",
   "description": "Templated · Interactive · View Engine",
   "scripts": {
-    "build": "pnpm rolldown -c rolldown.config.ts && tsc"
+    "build": "rolldown -c rolldown.config.ts && tsc",
+    "fmt": "oxfmt",
+    "lint": "oxlint --fix"
   },
   "devDependencies": {
-    "@types/node": "^24.0.4",
-    "rolldown": "1.0.0-beta.20",
-    "typescript": "^5.8.3"
+    "@startracex/dev-config": "^0.7.0",
+    "@types/node": "^26.6.6",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
+    "rolldown": "1.3.3",
+    "typescript": "^7.0.2"
   },
   "exports": {
     ".": {
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/module/index.js",
-      "require": "./dist/node/index.cjs",
-      "types": "./dist/types/index.d.ts"
+      "require": "./dist/node/index.cjs"
     },
     "./*": {
-      "import": "./dist/module/*",
-      "require": "./dist/node/*",
-      "types": "./dist/types/*.d.ts"
-    },
-    "./*.js": {
+      "types": "./dist/types/*.d.ts",
       "import": "./dist/module/*.js",
-      "require": "./dist/node/*.js",
-      "types": "./dist/types/*.d.ts"
+      "require": "./dist/node/*.js"
     },
     "./dist/*": null,
     "./package.json": "./package.json"
   },
-  "packageManager": "pnpm@10.12.4"
+  "packageManager": "pnpm@12.21.0"
 }

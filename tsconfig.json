@@ -6,10 +6,17 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "useDefineForClassFields": false,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictPropertyInitialization": false,
+    "rootDir": "src",
+    "outDir": "dist/types",
     "declaration": true,
     "emitDeclarationOnly": true,
-    "declarationMap": true,
-    "declarationDir": "dist/types"
+    "declarationMap": true
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

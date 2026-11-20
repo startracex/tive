@@ -1,4 +1,4 @@
-import { globSync } from "fs";
+import { globSync } from "node:fs";
 import type { OutputOptions } from "rolldown";
 
 const commonOutput: OutputOptions = {
