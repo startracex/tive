@@ -24,6 +24,6 @@ const outputs: OutputOptions[] = [
 ];
 
 export default {
-  input: globSync("src/**/*.ts"),
+  input: globSync("src/**/*.ts").filter((f) => !f.endsWith(".d.ts")),
   output: outputs,
 };
