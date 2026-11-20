@@ -1,22 +1,27 @@
+import type { Block } from "./block.js";
+
 export type Key = string | number;
 
-export interface PatchItem {
+export interface ListEntry {
+  nodes: ChildNode[];
   context: any;
+  block: Block;
+  assign?: (next: Record<string, any>) => void;
 }
 
-export type RenderFn = (context: any) => ChildNode[];
+export type ListRenderFn = (context: any) => ListEntry;
 export type GetKeyFn = (context: any) => Key;
-export type OnReuseFn = (oldContext: any, newContext: any) => void;
+export type OnReuseFn = (entry: ListEntry, newContext: any) => void;
 
 export class KeyedListPatcher {
-  private render: RenderFn;
+  private render: ListRenderFn;
   private getKey: GetKeyFn;
   private onReuse: OnReuseFn;
   private parent: Node | null = null;
   private anchor: Comment | null = null;
-  private currentMap = new Map<Key, { nodes: ChildNode[]; context: any }>();
+  private currentMap = new Map<Key, ListEntry>();
 
-  constructor(render: RenderFn, getKey: GetKeyFn, onReuse: OnReuseFn = () => {}) {
+  constructor(render: ListRenderFn, getKey: GetKeyFn, onReuse: OnReuseFn = () => {}) {
     this.render = render;
     this.getKey = getKey;
     this.onReuse = onReuse;
@@ -31,34 +36,32 @@ export class KeyedListPatcher {
     return !!(this.parent && this.anchor && this.anchor.parentNode === this.parent);
   }
 
-  patch(list: PatchItem[]) {
+  patch(contexts: any[]) {
     if (!this.parent || !this.anchor || this.anchor.parentNode !== this.parent) {
       throw new Error("patcher is not mounted");
     }
 
     const oldKeys = Array.from(this.currentMap.keys());
-    const newMap = new Map<Key, { nodes: ChildNode[]; context: any }>();
+    const newMap = new Map<Key, ListEntry>();
     const sourceIndices: number[] = [];
 
-    const patchPairs = list.map((item) => {
-      const key = this.getKey(item.context);
+    const patchPairs = contexts.map((context) => {
+      const key = this.getKey(context);
       const reused = this.currentMap.get(key);
-      let nodes: ChildNode[];
-      let context = item.context;
+      let entry: ListEntry;
 
       if (reused) {
-        this.onReuse(reused.context, item.context);
-        nodes = reused.nodes;
-        context = reused.context;
+        this.onReuse(reused, context);
+        entry = reused;
         this.currentMap.delete(key);
         sourceIndices.push(oldKeys.indexOf(key));
       } else {
-        nodes = this.render(item.context);
+        entry = this.render(context);
         sourceIndices.push(-1);
       }
 
-      newMap.set(key, { nodes, context });
-      return { key, nodes };
+      newMap.set(key, entry);
+      return entry;
     });
 
     const stable = getLIS(sourceIndices);
@@ -75,9 +78,16 @@ export class KeyedListPatcher {
       }
     }
 
-    this.currentMap.forEach(({ nodes }) => nodes.forEach((n) => n.remove()));
+    this.currentMap.forEach((entry) => {
+      entry.block.unmount();
+    });
 
     this.currentMap = newMap;
+  }
+
+  clear() {
+    this.currentMap.forEach((entry) => entry.block.unmount());
+    this.currentMap.clear();
   }
 }
 

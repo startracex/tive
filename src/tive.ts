@@ -1,57 +1,75 @@
-import { builtinAttributeRegistry } from "./attributes/handlers/builtins.js";
-import type { AttributeRegistry } from "./attributes/registry.js";
+import { compileTagged, type CompiledView } from "./compiler/compile.js";
 import { ComponentRegistry } from "./components/registry.js";
+import { Block } from "./runtime/block.js";
+import { DependencyBus, setBus } from "./runtime/effect.js";
+import { bindReactiveProperties } from "./runtime/reactive.js";
 
-import { Watcher } from "./watcher.js";
+export type { CompiledView };
 
-export function html(strings: TemplateStringsArray, ...values: any[]) {
-  const template = document.createElement("template");
-  const result = strings.reduce((acc, str, i) => acc + str + (values[i] ?? ""), "");
-  template.innerHTML = result;
-  return template;
+const emptyView: CompiledView = {
+  mount(host) {
+    return new Block(host);
+  },
+};
+
+export function html(strings: TemplateStringsArray, ...values: any[]): CompiledView {
+  return compileTagged(strings, values);
 }
 
 export class Tive {
-  static template: HTMLTemplateElement;
-  static attributeRegistry: AttributeRegistry = builtinAttributeRegistry;
+  static template: CompiledView = emptyView;
+  static properties: Record<string | symbol, any> = {};
+  static components: Record<string, typeof Tive> = {};
   static componentRegistry: ComponentRegistry = new ComponentRegistry();
-  static properties: Record<string | symbol, any>;
-  static components: Record<string, typeof Tive>;
 
   element!: HTMLElement;
-  name!: string;
-  #states: Record<string, any>;
-  #watcher: Watcher;
+  #root: Block | null = null;
+  #bus: DependencyBus;
+
   constructor() {
     const cons = this.constructor as typeof Tive;
-    this.#states = {};
+    this.#bus = new DependencyBus();
+    setBus(this, this.#bus);
+    this.#ensureReactive(cons);
+  }
 
-    const componentRegistry =
-      cons.components != null ? new ComponentRegistry(cons.components) : cons.componentRegistry;
+  /** Re-install accessors so subclass field init cannot wipe them permanently. */
+  #ensureReactive(cons: typeof Tive = this.constructor as typeof Tive) {
+    const keys = cons.properties ? Reflect.ownKeys(cons.properties) : [];
+    if (!keys.length) {
+      return;
+    }
 
-    this.#watcher = new Watcher(this, cons.attributeRegistry, componentRegistry);
+    const snapshot: Record<string | symbol, any> = {};
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(this, key) || key in this) {
+        snapshot[key] = (this as any)[key];
+      }
+    }
 
-    for (const key in cons.properties) {
-      Object.defineProperty(this, key, {
-        get() {
-          return this.#states[key];
-        },
-        set(newValue) {
-          if (Object.is(newValue, this.#states[key])) {
-            return;
-          }
-          this.#states[key] = newValue;
-          this.#watcher.update(key, newValue);
-        },
-      });
+    bindReactiveProperties(this, keys, this.#bus);
+
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(snapshot, key)) {
+        (this as any)[key] = snapshot[key];
+      }
     }
   }
 
   mount(element: HTMLElement) {
+    // Subclass `count: number` fields run after super() and replace accessors;
+    // re-bind here so later assignments still notify.
+    this.#ensureReactive();
     this.element = element;
-    const node = (this.constructor as typeof Tive).template.content.cloneNode(true);
-    Array.from(node.childNodes).forEach((child) => this.#watcher.onNode(child));
-    this.element.appendChild(node);
+    const view = (this.constructor as typeof Tive).template ?? emptyView;
+    this.#root = view.mount(this, element, null);
+    return this;
+  }
+
+  unmount() {
+    this.#root?.unmount();
+    this.#root = null;
+    this.#bus.clear();
     return this;
   }
 }
