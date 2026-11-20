@@ -29,7 +29,7 @@
     "./*": {
       "types": "./dist/types/*.d.ts",
       "import": "./dist/module/*.js",
-      "require": "./dist/node/*.js"
+      "require": "./dist/node/*.cjs"
     },
     "./dist/*": null,
     "./package.json": "./package.json"
